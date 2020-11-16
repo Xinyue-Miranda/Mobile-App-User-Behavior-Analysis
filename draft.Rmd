@@ -1,0 +1,16 @@
+---
+title: "Untitled"
+author: "Xinyue Ding"
+date: "September 9, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+ 
+Action to Reminder       Remove App       Keep App           Remove Ratio
+--------               --------------   ----------------   ----------------
+Refuse Reminder        762              1028                42.56%
+Never Refuse Reminder  1519             3004                33.58%
+---------              --------------   ----------------   ----------------

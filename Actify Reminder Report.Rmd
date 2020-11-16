@@ -1,0 +1,154 @@
+---
+title: "Actify Reminder Report"
+author: "Xinyue Ding"
+date: "September 8, 2019"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set( echo = FALSE, message = FALSE, cache = TRUE, warning = FALSE )
+```
+
+
+```{r load data}
+library(bigrquery)
+library(tidyverse)
+library(lubridate)
+load("actifyVitality_May2019.RData")
+```
+
+
+## Setting Reminders
+
+The bar plot below shows the counts of user actions related to setting reminders in morning(6 am - 12 pm), afternoon(12 pm - 6 pm), evening(6 pm - 12 am) and night(12 am - 6am).
+
+```{r reminders, fig.width=8, fig.height=6}
+activity_reminder <- activity_may2019 %>%
+  filter( str_detect(event_name, "reminder") ) %>%
+  rename(
+    event = event_name
+    ) %>% 
+  group_by(user_pseudo_id) %>% 
+  arrange(timestamp) %>%
+  distinct()
+
+activity_reminder$event <- factor(activity_reminder$event, 
+                                  labels = c("refuse_comfirm", "set_reminder"))
+
+df <- activity_reminder %>% 
+  rename(
+    reminder_timestamp = timestamp
+  ) %>%
+  spread(
+    key, string_value
+  ) %>%
+  select(
+    -event_date,
+    -first_touch_timestamp,
+    -firebase_event_origin,
+    -firebase_screen_id,
+    -firebase_screen_class,
+    -governance,
+    -user,
+    -user_id,
+    -timestamp
+  ) %>% 
+  group_by(user_pseudo_id) %>%
+  arrange(reminder_timestamp)
+
+
+df %>%
+  filter( ! is.na(agreedForReminders) ) %>%
+  select( - refused ) %>%
+  mutate(
+    timeslot = case_when(
+      hour(reminder_timestamp) <= 6  ~ 'Night',
+      hour(reminder_timestamp) <= 12 ~ 'Morning',
+      hour(reminder_timestamp) <= 18 ~ 'Afternoon',
+      TRUE                           ~ 'Evening'
+    )
+  ) %>% 
+  ggplot() +
+  geom_bar(aes(x = timeslot, 
+               fill = agreedForReminders),
+           position = position_dodge()) + 
+  theme_bw() +
+  labs(x = '', y = '') +
+  scale_fill_discrete(name = '', labels = c('Refuse', 'Accept')) +
+  scale_x_discrete( limits = c('Morning', 'Afternoon', 'Evening', 'Night')) +
+  ggtitle("When Did Users Accept/Refuse Reminders")
+```
+
+
+## Reminders and Removing-app
+
+The table below summarises the relationship between user reactions to accepting reminders along with their decision of whether to keep this app. The second column records the number of people who turned off/on reminders for users who finally removed the app, and the third column is for users who kept the app in their phones. The last column calculates the remove-app-ratio for the two different groups of people.
+
+Action to Reminder     Remove App       Keep App           Remove Ratio
+--------               --------------   ----------------   ----------------
+Refuse Reminder        762              1028                42.56%
+Never Refuse Reminder  1519             3004                33.58%
+---------              --------------   ----------------   ----------------
+
+From the table we can see, there exsists about 10% higher ratio for people who refused reminders to remove the app than those who never refused reminders. In other words, people who turned off reminders are significantly more likely to uninstall the app. The result is not surprising, for people who refused reminders might find part of the functions are not so useful to them.
+
+Besides, taking a further look at people who removed the app, we will see that they tend to remove the app very quickly. Actually, 86% users quitted within 10 hours after they first install the app. Among them, the overall usage time is still highly biased - most quitted users just removed he app within first 2.5 hours. Below is a histogram showing this.
+
+```{r remove, fig.width=8, fig.height=4}
+refuse <- df %>% 
+  filter( is.na(agreedForReminders) |
+          agreedForReminders == "no") %>%
+  group_by(user_pseudo_id) %>%
+  arrange(reminder_timestamp) %>% 
+  filter(agreedForReminders == "no") %>%
+  select( - refused ) %>%
+  group_by(user_pseudo_id) %>%
+  arrange(reminder_timestamp)
+
+remove_app <- activity_may2019 %>%
+  filter( str_detect(event_name, "app_remove") )  %>%
+  filter( str_detect(key, "firebase") ) %>%
+  group_by(user_pseudo_id) %>% 
+  rename( remove_timestamp = timestamp ) %>%
+  arrange(remove_timestamp) 
+
+remove_and_refuse <- remove_app %>% 
+  inner_join( 
+    refuse, 
+    by = "user_pseudo_id" 
+    ) %>%
+  select(
+    -event_date, 
+    -key, 
+    -string_value, 
+    -agreedForReminders,
+    -event_name,
+    -event
+    ) %>%
+  rename(
+    remove_app      = remove_timestamp,
+    refuse_reminder = reminder_timestamp,
+    first_touch     = first_touch_timestamp
+  ) %>% 
+  mutate(
+    overall_usage     = difftime(remove_app, first_touch,     units = "hours"),
+    refuse_to_remove  = difftime(remove_app, refuse_reminder, units = "hours")
+  )
+
+remove_and_refuse %>%
+  mutate(
+    overall_usage = as.numeric(overall_usage)
+  ) %>%
+  filter( overall_usage <= 10 ) %>%
+  ggplot( aes(x = overall_usage) ) +
+  geom_histogram( bins = 25 ) +
+  theme_bw() +
+  labs(title = 'Histogram of Overall Usage Time',
+       subtitle = 'For users who removed app within 10 hours')
+```
+
+
+
+
+
+
